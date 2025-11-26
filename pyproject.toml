@@ -1,0 +1,11 @@
+[project]
+name = "EmotioNN"
+version = "0.1.0"
+description = "Attention-based neural netword that recognizes emotion in texts"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "pandas>=2.3.3",
+    "tokenizers>=0.22.1",
+    "torch>=2.9.1",
+]
