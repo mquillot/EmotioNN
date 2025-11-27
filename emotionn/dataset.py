@@ -14,14 +14,17 @@ class TextualEmotionDetectionDataset(Dataset):
     data: pd.DataFrame
     "DataFrame containing the text and label data"
 
-    #vocabulary: torchtext.vocab.Vocab
-    #"Vocabulary used to create one hot tensors"
+    # vocabulary: torchtext.vocab.Vocab
+    # "Vocabulary used to create one hot tensors"
 
     tokenizer: Any
     "Tokenizer used to extract tokens from raw sentences"
 
-
-    def __init__(self, csv_path: str | Path, tokenizer: Tokenizer,):
+    def __init__(
+        self,
+        csv_path: str | Path,
+        tokenizer: Tokenizer,
+    ):
         """_summary_
 
         Args:

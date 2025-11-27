@@ -21,3 +21,11 @@ uv python pin cpython-3.14.0-macos-aarch64-none
 ```
 
 Else, you will use the x86 by default.
+
+
+# TODO list
+
+- [ ] Add isort as automatic import sorting
+- [ ] Implement Early Stopping
+- [ ] Track training measures with a solution like Tensorboard
+- [x] Add black as python formatter

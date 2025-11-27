@@ -9,3 +9,8 @@ dependencies = [
     "tokenizers>=0.22.1",
     "torch>=2.9.1",
 ]
+
+[dependency-groups]
+dev = [
+    "black>=25.11.0",
+]

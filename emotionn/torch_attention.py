@@ -1,10 +1,13 @@
 """Torch"""
+
 import torch
 from torch import nn
 
 
 class SimpleAttentionNetwork(torch.nn.Module):
-    def __init__(self, vocab_size, word_emb_size=3, query_key_length=4, nb_outputs_by_word=2):
+    def __init__(
+        self, vocab_size, word_emb_size=3, query_key_length=4, nb_outputs_by_word=2
+    ):
         """Intit the SimpleAttentionNetwork
 
         Args:
@@ -16,11 +19,16 @@ class SimpleAttentionNetwork(torch.nn.Module):
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, word_emb_size)
 
-        self.weights_query = torch.rand((word_emb_size, query_key_length), dtype=torch.float32)
-        self.weights_key = torch.rand((word_emb_size, query_key_length), dtype=torch.float32)
-        self.weights_value = torch.rand((word_emb_size, nb_outputs_by_word), dtype=torch.float32)
+        self.weights_query = torch.rand(
+            (word_emb_size, query_key_length), dtype=torch.float32
+        )
+        self.weights_key = torch.rand(
+            (word_emb_size, query_key_length), dtype=torch.float32
+        )
+        self.weights_value = torch.rand(
+            (word_emb_size, nb_outputs_by_word), dtype=torch.float32
+        )
         self.softmax = nn.Softmax(dim=1)
-
 
     def forward(self, x):
         x = self.embedding(x)
