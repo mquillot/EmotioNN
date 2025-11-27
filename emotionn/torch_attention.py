@@ -1,20 +1,22 @@
-"""Torch"""
+"""This module implements a multi-class classifier neural network with an attention mechanism."""
 
 import torch
 from torch import nn
 
 
 class SimpleAttentionNetwork(torch.nn.Module):
+    """Implementation of a simple Attention Network for multi-class classification."""
+
     def __init__(
         self, vocab_size, word_emb_size=3, query_key_length=4, nb_outputs_by_word=2
     ):
-        """Intit the SimpleAttentionNetwork
+        """Init the SimpleAttentionNetwork
 
         Args:
             vocab_size (_type_): Size of the vocabulary of the model.
             word_emb_size (int, optional): Dimentionality of word embeddings. Defaults to 3.
             query_key_length (int, optional): Dimensionality of query vectors. Defaults to 4.
-            nb_outputs_by_word (int, optional): Dimensionality of output for each word. Defaults to 2.
+            nb_outputs_by_word (int, optional): Dimensionality of each word output. Defaults to 2.
         """
         super().__init__()
         self.embedding = nn.Embedding(vocab_size, word_emb_size)
@@ -30,7 +32,15 @@ class SimpleAttentionNetwork(torch.nn.Module):
         )
         self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward one-hot vectors (tensors)
+
+        Args:
+            x (torch.Tensor): input tensor
+
+        Returns:
+            torch.Tensor: output tensor
+        """
         x = self.embedding(x)
 
         q = x @ self.weights_query

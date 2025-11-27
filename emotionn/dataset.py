@@ -14,9 +14,6 @@ class TextualEmotionDetectionDataset(Dataset):
     data: pd.DataFrame
     "DataFrame containing the text and label data"
 
-    # vocabulary: torchtext.vocab.Vocab
-    # "Vocabulary used to create one hot tensors"
-
     tokenizer: Any
     "Tokenizer used to extract tokens from raw sentences"
 
@@ -25,12 +22,16 @@ class TextualEmotionDetectionDataset(Dataset):
         csv_path: str | Path,
         tokenizer: Tokenizer,
     ):
-        """_summary_
+        """Initialize the Dataset with a CSV file
+
+        A tokenizer from HuggingFace library is also required.
+        Then to this tokenizer, a vocabulary id is automatically
+        computed for each token when getting an item (with
+        `__getitem__` method)
 
         Args:
             csv_path (str | Path): path of the csv containing data
-            tokenizer (Tokenizer): tokenizer
-            vocabulary (_type_, optional): vocabulary, unknown token index is length of vocab. Defaults to None.
+            tokenizer (Tokenizer): tokenizer from HuggingFace library
         """
         self.tokenizer = tokenizer
         self.data = pd.read_csv(csv_path, sep=",")
