@@ -18,13 +18,27 @@ from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 import pandas as pd
 
+from ignite.contrib.handlers import PiecewiseLinear
+from ignite.engine import Engine, Events
+from ignite.contrib.handlers import ProgressBar
+from ignite.metrics import Accuracy
+from ignite.handlers import EarlyStopping
+from ignite.handlers import ModelCheckpoint
+from ignite.handlers import Checkpoint
+from ignite.handlers import DiskSaver
+from ignite.handlers import global_step_from_engine
 
 CHECKPOINTS_FOLDER = "checkpoints"
-MAX_N_EPOCHS = 10
+MAX_N_EPOCHS = 100
+CHECKPOINTS_ID_TO_LOAD = None
 
 if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
+
+    # Select device
+    # TODO: make selection possible from ArgParse
+    device = torch.device("cpu")  # of cuda:0, or mps
 
     # Create the tokenizer
     tokenizer = Tokenizer(BPE())
@@ -39,7 +53,8 @@ if __name__ == "__main__":
 
     # Load training set and dataloader
     train_set = TextualEmotionDetectionDataset(
-        csv_path="data/Emotion-detection-from-text/training.csv", tokenizer=tokenizer
+        csv_path="data/Emotion-detection-from-text/training.csv",
+        tokenizer=tokenizer,
     )
 
     train_dataloader = DataLoader(
@@ -68,71 +83,120 @@ if __name__ == "__main__":
         word_emb_size=10,
         query_key_length=6,
         nb_outputs_by_word=6,
+        device=device,
     )
     loss_fn = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
     start_epoch: int = 0
 
-    # Load model and optimizer params if last checkpoint
-    last_checkpoint = Path(CHECKPOINTS_FOLDER, "last_checkpoint.tar")
-    if last_checkpoint.is_file():
-        checkpoint = torch.load(last_checkpoint)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        start_epoch = checkpoint["epoch"] + 1
+    num_training_steps = MAX_N_EPOCHS * len(train_dataloader)
+    milestones_values = [
+        (0, 5e-5),
+        (num_training_steps, 0.0),
+    ]
 
-    # Not checkpoints, create the folder if necessary
-    if not Path(CHECKPOINTS_FOLDER).is_dir():
-        Path(CHECKPOINTS_FOLDER).mkdir(parents=True, exist_ok=True)
+    # Create the lr scheduler
+    lr_scheduler = PiecewiseLinear(
+        optimizer, param_name="lr", milestones_values=milestones_values
+    )
 
-    train_loss_per_epoch = []
-    val_loss_per_epoch = []
-    model.train()
-    for epoch in range(start_epoch, MAX_N_EPOCHS):
-        logging.info("Epoch: %s", epoch)
+    model = model.to(device)
 
-        # Training step
-        train_losses = []
-        for texts, labels in tqdm(train_dataloader):
-            for text, label in zip(texts, labels):
-                model_output = model(text)
-                optimizer.zero_grad()
-                loss = loss_fn(model_output, label)
-                loss.backward()
-                optimizer.step()
+    def train_step(engine, batch):
+        """Training funtion for PyTorchIgnite"""
+        model.train()
+        token_ids: torch.Tensor = batch[0].to(device)
+        labels: torch.Tensor = batch[1].to(device)
 
-                train_losses.append(loss.detach().cpu().item())
-        logging.info("Train loss: %s", np.mean(train_losses))
+        outputs = model(token_ids)
 
-        # Validation step (with early stopping)
-        val_losses = []
-        well_classified = 0
+        assert outputs.shape[1] == 6  # Nb output word, nb labels
+
+        loss = loss_fn(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+        return loss
+
+    trainer = Engine(train_step)
+    trainer.add_event_handler(Events.ITERATION_STARTED, lr_scheduler)
+    pbar = ProgressBar()
+    pbar.attach(trainer, output_transform=lambda x: {"loss": x})
+
+    def evaluate_step(engine, batch):
+        """Evaluate function for PyTorch Ignite"""
+        model.eval()
+
+        token_ids: torch.Tensor = batch[0].to(device)
+        labels: torch.Tensor = batch[1].to(device)
+
         with torch.no_grad():
-            for texts, labels in val_dataloader:
-                for text, label in zip(texts, labels):
-                    model_output = model(text)
+            outputs = model(token_ids)
 
-                    # Well classified?
-                    if torch.equal(torch.argmax(model_output, dim=0), label):
-                        well_classified += 1
+        return {"y_pred": outputs, "y": labels}
 
-                    loss = loss_fn(model_output, label)
+    train_evaluator = Engine(evaluate_step)
+    validation_evaluator = Engine(evaluate_step)
 
-                    val_losses.append(loss.detach().cpu().item())
+    Accuracy().attach(train_evaluator, "accuracy")
+    Accuracy().attach(validation_evaluator, "accuracy")
 
-                    torch.argmax(model_output, dim=0)
-
-        logging.info("Val loss: %s", np.mean(val_losses))
-        logging.info(f"Val accuracy: {well_classified / len(val_set) * 100}%")
-
-        torch.save(
-            obj={
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "train_loss": np.mean(train_losses),
-                "val_loss": np.mean(val_losses),
-            },
-            f=Path(CHECKPOINTS_FOLDER, "last_checkpoint.tar"),
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_training_results(engine):
+        train_evaluator.run(train_dataloader)
+        metrics = train_evaluator.state.metrics
+        avg_accuracy = metrics["accuracy"]
+        print(
+            f"Training Results - Epoch: {engine.state.epoch}  Avg accuracy: {avg_accuracy:.3f}"
         )
-        # TODO: implement early stopping
+
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_validation_results(engine):
+        validation_evaluator.run(val_dataloader)
+        metrics = validation_evaluator.state.metrics
+        avg_accuracy = metrics["accuracy"]
+        print(
+            f"Validation Results - Epoch: {engine.state.epoch}  Avg accuracy: {avg_accuracy:.3f}"
+        )
+
+    # Early stopping
+    def score_function(engine):
+        val_accuracy = engine.state.metrics["accuracy"]
+        return val_accuracy
+
+    handler = EarlyStopping(patience=5, score_function=score_function, trainer=trainer)
+    validation_evaluator.add_event_handler(Events.COMPLETED, handler)
+
+    # Save checkpoint
+    to_save = {"model": model, "optimizer": optimizer, "trainer": trainer}
+    checkpoint = Checkpoint(
+        to_save=to_save,
+        save_handler=DiskSaver(
+            CHECKPOINTS_FOLDER,
+            create_dir=True,
+            require_empty=False,
+        ),
+        score_function=score_function,
+        n_saved=1,
+        global_step_transform=global_step_from_engine(trainer),
+    )
+
+    validation_evaluator.add_event_handler(Events.EPOCH_COMPLETED, checkpoint)
+
+    # Load checkpoint
+    if CHECKPOINTS_ID_TO_LOAD is not None:
+        torch_checkpoint = torch.load(
+            str(
+                Path(
+                    CHECKPOINTS_FOLDER,
+                    "checkpoint_" + str(CHECKPOINTS_ID_TO_LOAD) + ".pt",
+                )
+            ),
+            map_location=device,
+        )
+        Checkpoint.load_objects(
+            to_load=to_save,
+            checkpoint=torch_checkpoint,
+        )
+
+    trainer.run(train_dataloader, max_epochs=MAX_N_EPOCHS)

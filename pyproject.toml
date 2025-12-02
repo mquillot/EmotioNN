@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "pandas>=2.3.3",
+    "pytorch-ignite>=0.5.3",
     "tokenizers>=0.22.1",
     "torch>=2.9.1",
 ]

@@ -2,13 +2,19 @@
 
 import torch
 from torch import nn
+import logging
 
 
 class SimpleAttentionNetwork(torch.nn.Module):
     """Implementation of a simple Attention Network for multi-class classification."""
 
     def __init__(
-        self, vocab_size, word_emb_size=3, query_key_length=4, nb_outputs_by_word=2
+        self,
+        vocab_size,
+        word_emb_size=3,
+        query_key_length=4,
+        nb_outputs_by_word=2,
+        device=torch.device("cpu"),
     ):
         """Init the SimpleAttentionNetwork
 
@@ -19,17 +25,18 @@ class SimpleAttentionNetwork(torch.nn.Module):
             nb_outputs_by_word (int, optional): Dimensionality of each word output. Defaults to 2.
         """
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, word_emb_size)
+        self.embedding = nn.Embedding(vocab_size, word_emb_size).to(torch.device("mps"))
 
         self.weights_query = torch.rand(
             (word_emb_size, query_key_length), dtype=torch.float32
-        )
+        ).to(device)
         self.weights_key = torch.rand(
             (word_emb_size, query_key_length), dtype=torch.float32
-        )
+        ).to(device)
         self.weights_value = torch.rand(
             (word_emb_size, nb_outputs_by_word), dtype=torch.float32
-        )
+        ).to(device)
+
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -46,9 +53,12 @@ class SimpleAttentionNetwork(torch.nn.Module):
         q = x @ self.weights_query
         k = x @ self.weights_key
         v = x @ self.weights_value
-        scores = q @ torch.transpose(k, 0, 1)
+
+        scores = q @ torch.transpose(k, -2, -1)
 
         weights = self.softmax(scores)
+
         one_vector_output_by_word = weights @ v
-        mean, _ = torch.std_mean(one_vector_output_by_word, dim=0)
+        mean, _ = torch.std_mean(one_vector_output_by_word, dim=1)
+        # logging.info("Mean shape: %s", mean.shape)
         return mean
