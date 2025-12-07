@@ -21,16 +21,20 @@ import pandas as pd
 from ignite.contrib.handlers import PiecewiseLinear
 from ignite.engine import Engine, Events
 from ignite.contrib.handlers import ProgressBar
-from ignite.metrics import Accuracy
+from ignite.metrics import Accuracy, Loss
 from ignite.handlers import EarlyStopping
 from ignite.handlers import ModelCheckpoint
 from ignite.handlers import Checkpoint
 from ignite.handlers import DiskSaver
 from ignite.handlers import global_step_from_engine
 
+from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger
+
 CHECKPOINTS_FOLDER = "checkpoints"
-MAX_N_EPOCHS = 100
+MAX_N_EPOCHS = 1000
 CHECKPOINTS_ID_TO_LOAD = None
+RUN_ID = "run_01"
+LOG_INTERVAL = 100
 
 if __name__ == "__main__":
 
@@ -120,6 +124,7 @@ if __name__ == "__main__":
 
     trainer = Engine(train_step)
     trainer.add_event_handler(Events.ITERATION_STARTED, lr_scheduler)
+
     pbar = ProgressBar()
     pbar.attach(trainer, output_transform=lambda x: {"loss": x})
 
@@ -133,21 +138,26 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(token_ids)
 
-        return {"y_pred": outputs, "y": labels}
+        return {"y_pred": outputs, "y": labels, "criterion_kwargs": {}}
 
     train_evaluator = Engine(evaluate_step)
     validation_evaluator = Engine(evaluate_step)
 
     Accuracy().attach(train_evaluator, "accuracy")
     Accuracy().attach(validation_evaluator, "accuracy")
+    Loss(loss_fn).attach(train_evaluator, "loss")
+    Loss(loss_fn).attach(validation_evaluator, "loss")
 
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_training_results(engine):
         train_evaluator.run(train_dataloader)
         metrics = train_evaluator.state.metrics
         avg_accuracy = metrics["accuracy"]
-        print(
-            f"Training Results - Epoch: {engine.state.epoch}  Avg accuracy: {avg_accuracy:.3f}"
+        avg_loss = metrics["loss"]
+
+        logging.info(
+            f"Training Results - Epoch: {engine.state.epoch}  "
+            f"Avg loss {avg_loss:.3f}, Avg accuracy: {avg_accuracy:.3f}"
         )
 
     @trainer.on(Events.EPOCH_COMPLETED)
@@ -155,8 +165,10 @@ if __name__ == "__main__":
         validation_evaluator.run(val_dataloader)
         metrics = validation_evaluator.state.metrics
         avg_accuracy = metrics["accuracy"]
-        print(
-            f"Validation Results - Epoch: {engine.state.epoch}  Avg accuracy: {avg_accuracy:.3f}"
+        avg_loss = metrics["loss"]
+        logging.info(
+            f"Validation Results - Epoch: {engine.state.epoch}  "
+            f"Avg loss {avg_loss:.3f}, Avg accuracy: {avg_accuracy:.3f}"
         )
 
     # Early stopping
@@ -172,7 +184,7 @@ if __name__ == "__main__":
     checkpoint = Checkpoint(
         to_save=to_save,
         save_handler=DiskSaver(
-            CHECKPOINTS_FOLDER,
+            str(Path(CHECKPOINTS_FOLDER, RUN_ID)),
             create_dir=True,
             require_empty=False,
         ),
@@ -183,12 +195,13 @@ if __name__ == "__main__":
 
     validation_evaluator.add_event_handler(Events.EPOCH_COMPLETED, checkpoint)
 
-    # Load checkpoint
+    # # Load checkpoint
     if CHECKPOINTS_ID_TO_LOAD is not None:
         torch_checkpoint = torch.load(
             str(
                 Path(
                     CHECKPOINTS_FOLDER,
+                    RUN_ID,
                     "checkpoint_" + str(CHECKPOINTS_ID_TO_LOAD) + ".pt",
                 )
             ),
@@ -198,5 +211,28 @@ if __name__ == "__main__":
             to_load=to_save,
             checkpoint=torch_checkpoint,
         )
+
+    # Create a tensorboard logger
+    with TensorboardLogger(log_dir=f"experiments/{RUN_ID}") as tb_logger:
+        # Attach the logger to the trainer to log training loss at each iteration
+        tb_logger.attach_output_handler(
+            trainer,
+            event_name=Events.ITERATION_COMPLETED(every=LOG_INTERVAL),
+            tag="training",
+            output_transform=lambda loss: {"loss_iteration": loss},
+        )
+
+        # Attach handler for plotting both evaluators' metrics after every epoch completes
+        for tag, evaluator in [
+            ("training", train_evaluator),
+            ("validation", validation_evaluator),
+        ]:
+            tb_logger.attach_output_handler(
+                evaluator,
+                event_name=Events.EPOCH_COMPLETED,
+                tag=tag,
+                metric_names="all",
+                global_step_transform=global_step_from_engine(trainer),
+            )
 
     trainer.run(train_dataloader, max_epochs=MAX_N_EPOCHS)
