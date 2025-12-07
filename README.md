@@ -22,10 +22,13 @@ uv python pin cpython-3.14.0-macos-aarch64-none
 
 Else, you will use the x86 by default.
 
+Note: for now it's better to use CPU because the training is not optimized for batch training. Each batch contains only 1 training sample.
 
 # TODO list
 
 - [ ] Add isort as automatic import sorting
-- [ ] Implement Early Stopping
-- [ ] Track training measures with a solution like Tensorboard
+- [ ] Pad the batch with the maximum len size of training set
+- [ ] Use a mask to ignore padding tokens
+- [x] Implement Early Stopping
+- [x] Track training measures with a solution like Tensorboard
 - [x] Add black as python formatter
