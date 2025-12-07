@@ -22,6 +22,7 @@ uv python pin cpython-3.14.0-macos-aarch64-none
 
 Else, you will use the x86 by default.
 
+Note: for now it's better to use CPU because the training is not optimized for batch training. Each batch contains only 1 training sample.
 
 # TODO list
 
