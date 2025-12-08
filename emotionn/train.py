@@ -2,39 +2,38 @@
 
 Dataset from there: https://huggingface.co/datasets/dair-ai/emotion"""
 
-from emotionn.torch_attention import SimpleAttentionNetwork
-from emotionn.dataset import TextualEmotionDetectionDataset
-from torch.utils.data import DataLoader
-from torch import optim
 import logging
-from torch import nn
-import torch
-import numpy as np
-from tqdm import tqdm
+from typing import List
 from pathlib import Path
-from tokenizers import Tokenizer
+import torch
+from torch import nn
+from torch import optim
+from torch.utils.data import DataLoader
+from tokenizers import Tokenizer, Encoding
 from tokenizers.models import BPE
 from tokenizers.pre_tokenizers import Whitespace
 from tokenizers.trainers import BpeTrainer
 import pandas as pd
+
 
 from ignite.contrib.handlers import PiecewiseLinear
 from ignite.engine import Engine, Events
 from ignite.contrib.handlers import ProgressBar
 from ignite.metrics import Accuracy, Loss
 from ignite.handlers import EarlyStopping
-from ignite.handlers import ModelCheckpoint
 from ignite.handlers import Checkpoint
 from ignite.handlers import DiskSaver
 from ignite.handlers import global_step_from_engine
-
 from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger
-import torch.nn.functional as F
+
+
+from emotionn.torch_attention import SimpleAttentionNetwork
+from emotionn.dataset import TextualEmotionDetectionDataset
 
 CHECKPOINTS_FOLDER = "checkpoints"
 MAX_N_EPOCHS = 1000
 CHECKPOINTS_ID_TO_LOAD = None
-RUN_ID = "run_02"
+RUN_ID = "run_04"
 LOG_INTERVAL = 100
 
 if __name__ == "__main__":
@@ -48,6 +47,7 @@ if __name__ == "__main__":
     # Create the tokenizer
     tokenizer = Tokenizer(BPE())
     tokenizer.pre_tokenizer = Whitespace()
+    tokenizer.enable_padding()
 
     data = pd.read_csv("data/Emotion-detection-from-text/training.csv")
 
@@ -57,18 +57,13 @@ if __name__ == "__main__":
     )
 
     def padding_batch(batch):
-        max_len = max([len(e[0]) for e in batch])
-        new_elements = []
-        for element in batch:
-            new_elements.append(
-                F.pad(
-                    element[0],
-                    pad=(0, max_len - len(element[0])),
-                    mode="constant",
-                    value=0,
-                )
-            )
-        return (torch.stack(new_elements), torch.tensor([e[1] for e in batch]))
+        texts, labels = zip(*batch)
+        codes: List[Encoding] = tokenizer.encode_batch(texts)
+
+        tokens = [torch.tensor(e.ids) for e in codes]
+        attention_masks = [torch.tensor(e.attention_mask) for e in codes]
+
+        return torch.stack(tokens), torch.stack(attention_masks), torch.tensor(labels)
 
     # Load training set and dataloader
     train_set = TextualEmotionDetectionDataset(
@@ -93,6 +88,7 @@ if __name__ == "__main__":
         val_set,
         batch_size=1,
         shuffle=False,
+        collate_fn=padding_batch,
     )
 
     logging.info("Length of training vocabulary: %s+1", tokenizer.get_vocab_size())
@@ -111,7 +107,7 @@ if __name__ == "__main__":
 
     num_training_steps = MAX_N_EPOCHS * len(train_dataloader)
     milestones_values = [
-        (0, 5e-5),
+        (0, 5e-3),
         (num_training_steps, 0.0),
     ]
 
@@ -126,9 +122,10 @@ if __name__ == "__main__":
         """Training funtion for PyTorchIgnite"""
         model.train()
         token_ids: torch.Tensor = batch[0].to(device)
-        labels: torch.Tensor = batch[1].to(device)
+        attention_masks: torch.Tensor = batch[1].to(device)
+        labels: torch.Tensor = batch[2].to(device)
 
-        outputs = model(token_ids)
+        outputs = model(token_ids, attention_masks)
 
         assert outputs.shape[1] == 6  # Nb output word, nb labels
 
@@ -149,10 +146,11 @@ if __name__ == "__main__":
         model.eval()
 
         token_ids: torch.Tensor = batch[0].to(device)
-        labels: torch.Tensor = batch[1].to(device)
+        attention_masks: torch.Tensor = batch[1].to(device)
+        labels: torch.Tensor = batch[2].to(device)
 
         with torch.no_grad():
-            outputs = model(token_ids)
+            outputs = model(token_ids, attention_masks)
 
         return {"y_pred": outputs, "y": labels, "criterion_kwargs": {}}
 
