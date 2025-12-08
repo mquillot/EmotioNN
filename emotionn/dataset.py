@@ -1,10 +1,8 @@
 """Textual Emotion Detection Dataset declaration"""
 
-from typing import Any
 from pathlib import Path
 import pandas as pd
 from torch.utils.data import Dataset
-import torch
 from tokenizers import Tokenizer
 
 
@@ -14,7 +12,7 @@ class TextualEmotionDetectionDataset(Dataset):
     data: pd.DataFrame
     "DataFrame containing the text and label data"
 
-    tokenizer: Any
+    tokenizer: Tokenizer
     "Tokenizer used to extract tokens from raw sentences"
 
     def __init__(
@@ -41,4 +39,4 @@ class TextualEmotionDetectionDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        return (torch.tensor(self.tokenizer.encode(row["text"]).ids), row["label"])
+        return row["text"], row["label"]

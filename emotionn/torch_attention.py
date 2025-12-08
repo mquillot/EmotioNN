@@ -2,7 +2,6 @@
 
 import torch
 from torch import nn
-import logging
 
 
 class SimpleAttentionNetwork(torch.nn.Module):
@@ -39,7 +38,11 @@ class SimpleAttentionNetwork(torch.nn.Module):
 
         self.softmax = nn.Softmax(dim=1)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        attention_masks: None | torch.Tensor = None,
+    ) -> torch.Tensor:
         """Forward one-hot vectors (tensors)
 
         Args:
@@ -48,17 +51,30 @@ class SimpleAttentionNetwork(torch.nn.Module):
         Returns:
             torch.Tensor: output tensor
         """
+
         x = self.embedding(x)
 
+        attention_masks = (
+            torch.zeros(
+                attention_masks.shape[0],
+                attention_masks.shape[1],
+                attention_masks.shape[1],
+            )
+            + attention_masks[:, :, None]
+            + attention_masks[:, None, :]
+        )
         q = x @ self.weights_query
         k = x @ self.weights_key
         v = x @ self.weights_value
 
         scores = q @ torch.transpose(k, -2, -1)
 
+        # Apply mask to attention scores
+        if attention_masks is not None:
+            scores = scores.masked_fill(attention_masks == 0, float("-inf"))
+
         weights = self.softmax(scores)
 
         one_vector_output_by_word = weights @ v
         mean, _ = torch.std_mean(one_vector_output_by_word, dim=1)
-        # logging.info("Mean shape: %s", mean.shape)
         return mean
