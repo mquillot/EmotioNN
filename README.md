@@ -27,8 +27,9 @@ Note: for now it's better to use CPU because the training is not optimized for b
 # TODO list
 
 - [ ] Add isort as automatic import sorting
-- [ ] Pad the batch with the maximum len size of training set
+- [ ] Ignore padding tokens in the attention mechanism
 - [ ] Use a mask to ignore padding tokens
+- [x] Pad the batch with the maximum len size of training set
 - [x] Implement Early Stopping
 - [x] Track training measures with a solution like Tensorboard
 - [x] Add black as python formatter

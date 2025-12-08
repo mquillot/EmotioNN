@@ -29,11 +29,12 @@ from ignite.handlers import DiskSaver
 from ignite.handlers import global_step_from_engine
 
 from ignite.contrib.handlers.tensorboard_logger import TensorboardLogger
+import torch.nn.functional as F
 
 CHECKPOINTS_FOLDER = "checkpoints"
 MAX_N_EPOCHS = 1000
 CHECKPOINTS_ID_TO_LOAD = None
-RUN_ID = "run_01"
+RUN_ID = "run_02"
 LOG_INTERVAL = 100
 
 if __name__ == "__main__":
@@ -42,7 +43,7 @@ if __name__ == "__main__":
 
     # Select device
     # TODO: make selection possible from ArgParse
-    device = torch.device("cpu")  # of cuda:0, or mps
+    device = torch.device("cpu")  # or cuda:0, or mps
 
     # Create the tokenizer
     tokenizer = Tokenizer(BPE())
@@ -55,6 +56,20 @@ if __name__ == "__main__":
         trainer=BpeTrainer(),
     )
 
+    def padding_batch(batch):
+        max_len = max([len(e[0]) for e in batch])
+        new_elements = []
+        for element in batch:
+            new_elements.append(
+                F.pad(
+                    element[0],
+                    pad=(0, max_len - len(element[0])),
+                    mode="constant",
+                    value=0,
+                )
+            )
+        return (torch.stack(new_elements), torch.tensor([e[1] for e in batch]))
+
     # Load training set and dataloader
     train_set = TextualEmotionDetectionDataset(
         csv_path="data/Emotion-detection-from-text/training.csv",
@@ -63,8 +78,9 @@ if __name__ == "__main__":
 
     train_dataloader = DataLoader(
         train_set,
-        batch_size=1,
+        batch_size=64,
         shuffle=True,
+        collate_fn=padding_batch,
     )
 
     # Load validation set and dataloader
